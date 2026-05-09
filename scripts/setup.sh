@@ -30,7 +30,7 @@ CONFIG_DIR="$HOME/.emp-checkin"
 CONFIG_FILE="$CONFIG_DIR/config.env"
 
 # Step 1: Load or prompt for secrets
-echo -e "${YELLOW}[1/8]${NC} Loading secrets..."
+echo -e "${YELLOW}[1/9]${NC} Loading secrets..."
 
 if [ -f "$CONFIG_FILE" ]; then
     # shellcheck disable=SC1090
@@ -41,12 +41,12 @@ else
     echo "  Let's create it now."
     mkdir -p "$CONFIG_DIR"
     chmod 700 "$CONFIG_DIR"
-    
-    read -r -p "  DAO password (EmP 到, athletes): " DAO_PASSWORD
-    read -r -p "  QIAN password (EmP 签, volunteers): " QIAN_PASSWORD
-    read -r -p "  TONG password (EmP 通, admin): " TONG_PASSWORD
+
+    read -r -p "  QIAN password (EmP Qiān, volunteers): " QIAN_PASSWORD
+    read -r -p "  DAO password (EmP Dào, athletes): " DAO_PASSWORD
+    read -r -p "  TONG password (EmP Tōng, admin): " TONG_PASSWORD
     read -r -p "  EXPORT PIN (4 digits for AirDrop): " EXPORT_PIN
-    
+
     {
         echo "# EmP Check-In — secrets and configuration"
         echo ""
@@ -69,7 +69,7 @@ done
 
 # Step 2: Check prerequisites
 echo ""
-echo -e "${YELLOW}[2/8]${NC} Checking prerequisites..."
+echo -e "${YELLOW}[2/9]${NC} Checking prerequisites..."
 
 if ! command -v uv &> /dev/null; then
     echo -e "${RED}Error:${NC} 'uv' not found."
@@ -83,9 +83,50 @@ if ! command -v xcodegen &> /dev/null; then
 fi
 echo "  ✓ xcodegen"
 
+# Step 3: Ensure roster xlsx files exist in data/
+echo ""
+echo -e "${YELLOW}[3/9]${NC} Checking roster files..."
+
+mkdir -p data
+
+prompt_for_xlsx() {
+    local target="$1"
+    local label="$2"
+
+    if [ -f "$target" ]; then
+        echo "  ✓ $target"
+        return
+    fi
+
+    echo -e "  ${YELLOW}⚠️  $target not found${NC}"
+    echo ""
+    echo "  Provide the absolute path to $label.xlsx"
+    echo "  (tip: use 'realpath <file>' to get the full path)"
+
+    while true; do
+        read -r -p "  > " src_path
+        if [ -z "$src_path" ]; then
+            echo -e "  ${RED}Path cannot be empty.${NC}"
+            continue
+        fi
+        # Expand ~ if present
+        src_path="${src_path/#\~/$HOME}"
+        if [ ! -f "$src_path" ]; then
+            echo -e "  ${RED}File not found: $src_path${NC}"
+            continue
+        fi
+        cp "$src_path" "$target"
+        echo "  ✓ Copied to $target"
+        break
+    done
+}
+
+prompt_for_xlsx "data/athletes.xlsx" "athletes"
+prompt_for_xlsx "data/volunteers.xlsx" "volunteers"
+
 # Step 3: Clean previous artifacts
 echo ""
-echo -e "${YELLOW}[3/8]${NC} Cleaning previous artifacts..."
+echo -e "${YELLOW}[4/9]${NC} Cleaning previous artifacts..."
 rm -rf app_bundle
 rm -rf EmPCheckIn/EmPCheckIn.xcodeproj
 rm -rf EmPCheckIn/Sources/*/Assets.xcassets
@@ -96,13 +137,13 @@ echo "  ✓ Clean"
 
 # Step 4: Install Python dependencies
 echo ""
-echo -e "${YELLOW}[4/8]${NC} Installing Python dependencies..."
+echo -e "${YELLOW}[5/9]${NC} Installing Python dependencies..."
 uv sync --quiet
 echo "  ✓ Dependencies installed"
 
 # Step 5: Preprocess rosters
 echo ""
-echo -e "${YELLOW}[5/8]${NC} Preprocessing rosters..."
+echo -e "${YELLOW}[6/9]${NC} Preprocessing rosters..."
 uv run python scripts/prepare_roster.py \
     --password-dao "$DAO_PASSWORD" \
     --password-qian "$QIAN_PASSWORD" \
@@ -110,7 +151,7 @@ uv run python scripts/prepare_roster.py \
 
 # Step 6: Generate Secrets.swift and EmbeddedData.swift
 echo ""
-echo -e "${YELLOW}[6/8]${NC} Generating Swift files (Secrets, EmbeddedData)..."
+echo -e "${YELLOW}[7/9]${NC} Generating Swift files (Secrets, EmbeddedData)..."
 
 cat > EmPCheckIn/Sources/Shared/Services/Secrets.swift << SWIFTEOF
 import Foundation
@@ -164,7 +205,7 @@ print('  ✓ EmbeddedData.swift written')
 
 # Step 7: Generate app icons
 echo ""
-echo -e "${YELLOW}[7/8]${NC} Generating app icons..."
+echo -e "${YELLOW}[8/9]${NC} Generating app icons..."
 uv run python -c "
 from PIL import Image, ImageDraw, ImageFont
 import os, json
@@ -203,7 +244,7 @@ print('  ✓ Icons generated: Dào, Qiān, Tōng')
 
 # Step 8: Generate Xcode project
 echo ""
-echo -e "${YELLOW}[8/8]${NC} Generating Xcode project..."
+echo -e "${YELLOW}[9/9]${NC} Generating Xcode project..."
 cd EmPCheckIn
 xcodegen generate --spec project.yml
 cd ..
@@ -235,5 +276,5 @@ echo ""
 echo "  Config: $CONFIG_FILE"
 echo ""
 echo "  Next:"
-echo "    open EmPCheckIn/EmPCheckIn.xcodeproj"
+echo "    ./scripts/open.sh"
 echo ""
