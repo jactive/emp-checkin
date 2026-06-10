@@ -1,6 +1,6 @@
 # EmP Check-In
 
-Offline iOS check-in system for the Emerald Parents Family Track & Field Meet.
+Offline iOS check-in system for Emerald Parents (EmP) Association events.
 
 ## Overview
 
