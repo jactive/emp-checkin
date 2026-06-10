@@ -17,7 +17,10 @@ struct Athlete: Identifiable, Codable, Hashable {
     var fullName: String { "\(firstName) \(lastName)" }
 
     var searchTokens: [String] {
-        [firstName.lowercased(), lastName.lowercased()]
+        var tokens = [firstName.lowercased(), lastName.lowercased()]
+        // Also searchable by bib number
+        tokens.append(bibNumber)
+        return tokens
     }
 
     var phoneLast4: String {

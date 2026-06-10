@@ -45,6 +45,9 @@ final class CheckInStore {
     var checkedInCount: Int { states.values.filter(\.isCheckedIn).count }
 
     func exportLogToFile() -> URL? {
+        // Return nil if no events to export
+        guard !events.isEmpty else { return nil }
+        
         let enc = JSONEncoder(); enc.dateEncodingStrategy = .iso8601; enc.outputFormatting = .prettyPrinted
         guard let data = try? enc.encode(events) else { return nil }
         let dateStr = ISO8601DateFormatter().string(from: Date())
@@ -54,7 +57,13 @@ final class CheckInStore {
         let safeName = deviceName.replacingOccurrences(of: " ", with: "_")
         let name = "\(appPrefix)_checkin_\(dateStr)_\(safeName)_\(deviceShortId).json"
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(name)
-        try? data.write(to: url); return url
+        do {
+            try data.write(to: url)
+            return url
+        } catch {
+            print("Export failed: \(error)")
+            return nil
+        }
     }
 
     private func append(_ e: CheckInEvent) { events.append(e); replay(e.personId); save() }

@@ -59,10 +59,25 @@ def _clean_phone(value) -> str:
     return s
 
 
+def _clean_str(value) -> str:
+    """Clean string value from Excel."""
+    if not value:
+        return ""
+    return str(value).strip()
+
+
 def parse_athletes(filepath: str) -> list[dict]:
     """Parse athletes from xlsx into normalized dicts."""
     wb = openpyxl.load_workbook(filepath, read_only=True)
-    ws = wb["Athletes 2025-05-22"]
+    # Try different sheet names for compatibility
+    sheet_names = ["All", "Athletes 2025-05-22"]
+    ws = None
+    for name in sheet_names:
+        if name in wb.sheetnames:
+            ws = wb[name]
+            break
+    if ws is None:
+        raise ValueError(f"No valid sheet found. Available: {wb.sheetnames}")
     rows = list(ws.iter_rows(values_only=True))
     
     athletes = []
@@ -103,37 +118,211 @@ def parse_athletes(filepath: str) -> list[dict]:
     return athletes
 
 
+def _normalize_name(name: str) -> str:
+    """Normalize name for matching: lowercase, strip spaces, remove punctuation."""
+    if not name:
+        return ""
+    return name.lower().strip().replace(" ", "").replace("-", "").replace(".", "")
+
+
+def _format_header(header: str) -> str:
+    """Format header to Title Case (e.g., 'Last name' -> 'Last Name')."""
+    if not header:
+        return ""
+    return " ".join(word.capitalize() for word in header.strip().split())
+
+
 def parse_volunteers(filepath: str) -> list[dict]:
-    """Parse volunteers from xlsx into normalized dicts."""
-    wb = openpyxl.load_workbook(filepath, read_only=True)
-    ws = wb["Sheet1"]
-    rows = list(ws.iter_rows(values_only=True))
+    """Parse volunteers from xlsx into normalized dicts.
     
+    Expected format (from 总表0513 sheet):
+    - Column A: Task (role)
+    - Column B: Volunteer No.
+    - Column C: Who (name)
+    - Column D: Other roles
+    - Column E: Email
+    - Column F: Phone
+    - Column G: WeChat
+    
+    Other sheets contain group assignments:
+    - Row 0 = headers (Task, First Name, Last Name, other columns...)
+    - Tab name = Group name
+    - Columns marked "ignored" are skipped
+    - Other columns displayed as "Header: Value"
+    """
+    wb = openpyxl.load_workbook(filepath, read_only=True)
+    
+    # Try to find the main volunteer sheet
+    main_sheet_names = ["总表0513", "Sheet1"]
+    main_ws = None
+    main_sheet_name = None
+    for name in main_sheet_names:
+        if name in wb.sheetnames:
+            main_ws = wb[name]
+            main_sheet_name = name
+            break
+    if main_ws is None:
+        raise ValueError(f"No valid volunteer sheet found. Available: {wb.sheetnames}")
+    
+    rows = list(main_ws.iter_rows(values_only=True))
+    
+    # First pass: collect all entries by volunteer number from main sheet
+    vol_data: dict[int, dict] = {}
+    
+    for row in rows[1:]:  # Skip header
+        # Need at least volunteer number and name
+        if len(row) < 3:
+            continue
+        
+        vol_no = row[1]
+        name = _clean_str(row[2])
+        
+        if not vol_no or not name:
+            continue
+        
+        # Convert volunteer number to int
+        try:
+            vol_no_int = int(float(vol_no))
+        except (ValueError, TypeError):
+            continue
+        
+        task = _clean_str(row[0]) if len(row) > 0 else ""
+        other_roles = _clean_str(row[3]) if len(row) > 3 else ""
+        email = _clean_str(row[4]) if len(row) > 4 else ""
+        phone = _clean_phone(row[5]) if len(row) > 5 else ""
+        wechat = _clean_str(row[6]) if len(row) > 6 else ""
+        
+        if vol_no_int not in vol_data:
+            # First occurrence - create new entry
+            vol_data[vol_no_int] = {
+                "id": str(vol_no_int),
+                "volunteerNumber": vol_no_int,
+                "name": name,
+                "tasks": [task] if task else [],
+                "otherRoles": other_roles,
+                "email": email,
+                "phone": phone,
+                "wechat": wechat,
+                "groupName": "",
+                "groupInfo": [],  # List of "Header: Value" strings
+            }
+        else:
+            # Duplicate - merge tasks
+            if task and task not in vol_data[vol_no_int]["tasks"]:
+                vol_data[vol_no_int]["tasks"].append(task)
+            # Fill in missing contact info if available
+            if not vol_data[vol_no_int]["email"] and email:
+                vol_data[vol_no_int]["email"] = email
+            if not vol_data[vol_no_int]["phone"] and phone:
+                vol_data[vol_no_int]["phone"] = phone
+            if not vol_data[vol_no_int]["wechat"] and wechat:
+                vol_data[vol_no_int]["wechat"] = wechat
+            if not vol_data[vol_no_int]["otherRoles"] and other_roles:
+                vol_data[vol_no_int]["otherRoles"] = other_roles
+    
+    # Build name-to-volunteer-number lookup (normalized name -> vol_no)
+    name_to_vol: dict[str, int] = {}
+    for vol_no_int, v in vol_data.items():
+        norm_name = _normalize_name(v["name"])
+        if norm_name:
+            name_to_vol[norm_name] = vol_no_int
+    
+    # Second pass: read other sheets to find group assignments
+    print(f"   Scanning {len(wb.sheetnames) - 1} group sheets for assignments...")
+    matches_found = 0
+    
+    for sheet_name in wb.sheetnames:
+        if sheet_name == main_sheet_name:
+            continue  # Skip main sheet
+        
+        group_name = sheet_name  # Tab name is the group name
+        ws = wb[sheet_name]
+        rows = list(ws.iter_rows(values_only=True))
+        
+        if len(rows) < 2:
+            continue  # Need at least header + 1 data row
+        
+        # Parse header row (row 0)
+        header_row = rows[0]
+        headers = [_clean_str(h) for h in header_row] if header_row else []
+        
+        # Find column indices for First Name and Last Name
+        first_name_idx = None
+        last_name_idx = None
+        for idx, h in enumerate(headers):
+            h_lower = h.lower().replace(" ", "")
+            if h_lower == "firstname":
+                first_name_idx = idx
+            elif h_lower == "lastname":
+                last_name_idx = idx
+        
+        if first_name_idx is None:
+            continue  # Can't match without first name
+        
+        # Process data rows
+        for row in rows[1:]:
+            if len(row) <= first_name_idx:
+                continue
+            
+            first_name = _clean_str(row[first_name_idx])
+            if not first_name:
+                continue
+            
+            last_name = ""
+            if last_name_idx is not None and len(row) > last_name_idx:
+                last_name = _clean_str(row[last_name_idx])
+            
+            # Construct full name and try to match
+            full_name = f"{first_name} {last_name}".strip() if last_name else first_name
+            norm_full = _normalize_name(full_name)
+            
+            if norm_full not in name_to_vol:
+                continue
+            
+            vol_no = name_to_vol[norm_full]
+            
+            # Only set if not already set (first match wins)
+            if vol_data[vol_no]["groupName"]:
+                continue
+            
+            vol_data[vol_no]["groupName"] = group_name
+            
+            # Collect additional info from other columns
+            group_info = []
+            for idx, h in enumerate(headers):
+                # Skip ignored, empty headers, first name, last name
+                h_lower = h.lower().replace(" ", "")
+                if not h or h_lower == "ignored" or h_lower == "firstname" or h_lower == "lastname":
+                    continue
+                
+                # Get cell value
+                if idx < len(row):
+                    value = _clean_str(row[idx])
+                    if value:
+                        formatted_header = _format_header(h)
+                        group_info.append(f"{formatted_header}: {value}")
+            
+            vol_data[vol_no]["groupInfo"] = group_info
+            matches_found += 1
+    
+    print(f"   Found group assignments for {matches_found} volunteers")
+    
+    # Convert to final format
     volunteers = []
-    vol_id = 1
-    for row in rows[1:]:
-        # Need at least 3 columns and a name
-        if len(row) < 3 or not row[2]:
-            continue
-        
-        name = str(row[2]).strip()
-        role = str(row[0]).strip() if row[0] else ""
-        email = str(row[3]).strip() if len(row) > 3 and row[3] else ""
-        phone = _clean_phone(row[4]) if len(row) > 4 else ""
-        
-        # Skip entries that have no role, no email, and no phone — these are notes, not volunteers
-        if not role and not email and not phone:
-            continue
-        
-        volunteer = {
-            "id": str(vol_id),
-            "name": name,
-            "role": role,
-            "email": email,
-            "phone": phone,
-        }
-        volunteers.append(volunteer)
-        vol_id += 1
+    for vol_no_int in sorted(vol_data.keys()):
+        v = vol_data[vol_no_int]
+        volunteers.append({
+            "id": v["id"],
+            "volunteerNumber": v["volunteerNumber"],
+            "name": v["name"],
+            "role": " | ".join(v["tasks"]) if v["tasks"] else "",
+            "otherRoles": v["otherRoles"],
+            "groupName": v["groupName"],
+            "groupInfo": v["groupInfo"],  # List of "Header: Value" strings
+            "email": v["email"],
+            "phone": v["phone"],
+            "wechat": v["wechat"],
+        })
     
     wb.close()
     return volunteers
@@ -259,6 +448,15 @@ def main():
     (output_dir / "athletes_tong.enc").write_bytes(athletes_tong_enc)
     (output_dir / "volunteers_tong.enc").write_bytes(volunteers_tong_enc)
     print(f"   Written athletes_tong.enc and volunteers_tong.enc")
+    
+    # Generate age metadata for EmP 到 (unencrypted, just the list of ages)
+    print("📊 Generating age metadata...")
+    available_ages = sorted(set(a["age"] for a in athletes))
+    ages_json = json.dumps(available_ages).encode("utf-8")
+    ages_out = output_dir / "ages_dao.json"
+    ages_out.write_bytes(ages_json)
+    print(f"   Available ages: {available_ages}")
+    print(f"   Written to {ages_out}")
     
     # Summary
     print("\n✅ Done!")

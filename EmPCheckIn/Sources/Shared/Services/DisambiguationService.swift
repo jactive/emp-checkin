@@ -1,17 +1,18 @@
 import Foundation
 
 enum DisambiguationService {
-    /// Find duplicate groups that actually need disambiguation.
-    /// Only returns groups where members have DIFFERENT contact info (genuinely different people).
-    /// If all members share the same contact + phone (duplicate registration), no challenge needed.
+    /// Find duplicate groups by name only (regardless of age/gender).
+    /// Returns groups of athletes with the same full name who have DIFFERENT phone numbers.
+    /// This handles cases like "Ethan Li" appearing in ages 3, 6, 7, 9 — all different kids.
     static func findDuplicateGroups(_ athletes: [Athlete]) -> [[Athlete]] {
+        // Group by name only (case-insensitive)
         Dictionary(grouping: athletes) {
-            "\($0.firstName.lowercased())|\($0.lastName.lowercased())|\($0.age)|\($0.gender.lowercased())"
+            "\($0.firstName.lowercased())|\($0.lastName.lowercased())"
         }.values.filter { group in
             guard group.count > 1 else { return false }
-            // Check if they have different contacts — only then do we need disambiguation
-            let contacts = Set(group.map { "\($0.contactName.lowercased())|\($0.phoneLast4)" })
-            return contacts.count > 1
+            // Check if they have different phone last 4 digits — only then do we need disambiguation
+            let phones = Set(group.map { $0.phoneLast4 })
+            return phones.count > 1
         }
     }
 

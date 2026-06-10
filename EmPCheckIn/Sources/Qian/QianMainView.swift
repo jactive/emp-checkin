@@ -76,19 +76,28 @@ struct QianMainView: View {
         VStack(spacing: 0) {
             HStack {
                 Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                TextField("Search volunteer name...", text: $query)
+                TextField("Search # or name...", text: $query)
                     .autocorrectionDisabled().textInputAutocapitalization(.never)
+                    .keyboardType(.default)
                 if !query.isEmpty { Button { query = "" } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary) } }
             }
             .padding(10).background(RoundedRectangle(cornerRadius: 12).fill(Color(.systemGray6)))
             .padding(.horizontal, 16).padding(.vertical, 8)
             HStack(spacing: 8) {
-                pill("Not checked in", active: filterMode == 0) { filterMode = 0 }
-                pill("Checked in", active: filterMode == 1) { filterMode = 1 }
-                pill("All", active: filterMode == 2) { filterMode = 2 }
+                pill("Pending (\(notCheckedInCount))", active: filterMode == 0) { filterMode = 0 }
+                pill("Done (\(checkedInCount))", active: filterMode == 1) { filterMode = 1 }
+                pill("All (\(volunteers.count))", active: filterMode == 2) { filterMode = 2 }
                 Spacer()
             }.padding(.horizontal, 16).padding(.bottom, 8)
         }.background(.white)
+    }
+    
+    private var notCheckedInCount: Int {
+        volunteers.filter { !store.isCheckedIn($0.id) }.count
+    }
+    
+    private var checkedInCount: Int {
+        volunteers.filter { store.isCheckedIn($0.id) }.count
     }
 
     private func pill(_ title: String, active: Bool, action: @escaping () -> Void) -> some View {
@@ -103,10 +112,32 @@ struct QianMainView: View {
 
     private func volunteerCard(_ v: Volunteer) -> some View {
         let checked = store.isCheckedIn(v.id)
-        return HStack {
+        return HStack(spacing: 12) {
+            // Volunteer number badge (prominent)
+            Text("#\(v.volunteerNumber)")
+                .font(.system(.headline, design: .rounded, weight: .bold))
+                .foregroundStyle(checked ? .secondary : Color.deepPurple)
+                .frame(width: 56, height: 44)
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(checked ? Color(.systemGray5) : Color.deepPurple.opacity(0.1))
+                )
+            
             VStack(alignment: .leading, spacing: 3) {
                 Text(v.name).font(.body).fontWeight(.semibold).foregroundStyle(checked ? .secondary : .primary)
-                Text(v.role).font(.caption).foregroundStyle(Color.deepPurple).fontWeight(.medium).lineLimit(2)
+                // Display: Task → Other roles → [Group name] → Group info items
+                if !v.role.isEmpty {
+                    Text(v.role).font(.caption).foregroundStyle(Color.deepPurple).fontWeight(.medium).lineLimit(2)
+                }
+                if !v.otherRoles.isEmpty {
+                    Text("Also: \(v.otherRoles)").font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                }
+                if !v.groupName.isEmpty {
+                    Text("[\(v.groupName)]").font(.caption).foregroundStyle(.orange).fontWeight(.semibold)
+                }
+                ForEach(v.groupInfo, id: \.self) { info in
+                    Text(info).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                }
             }
             Spacer()
             if checked {
@@ -125,7 +156,38 @@ struct QianMainView: View {
     private func confirmSheet(_ v: Volunteer) -> some View {
         VStack(spacing: 16) {
             Text(v.name).font(.title2).fontWeight(.bold).padding(.top, 24)
-            Text(v.role).font(.subheadline).foregroundStyle(Color.deepPurple).fontWeight(.semibold)
+            
+            // Prominent volunteer number
+            VStack(spacing: 4) {
+                Text("Volunteer No.").font(.caption).foregroundStyle(.secondary).textCase(.uppercase)
+                Text("#\(v.volunteerNumber)")
+                    .font(.system(size: 56, weight: .heavy, design: .rounded))
+                    .foregroundStyle(Color.deepPurple)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 12)
+            .background(
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(Color.deepPurple.opacity(0.08))
+                    .strokeBorder(Color.deepPurple.opacity(0.3), lineWidth: 2)
+            )
+            
+            // Role information: Task → Other roles → [Group name] → Group info
+            VStack(spacing: 6) {
+                if !v.role.isEmpty {
+                    Text(v.role).font(.subheadline).foregroundStyle(Color.deepPurple).fontWeight(.semibold).multilineTextAlignment(.center)
+                }
+                if !v.otherRoles.isEmpty {
+                    Text("Also: \(v.otherRoles)").font(.caption).foregroundStyle(.secondary)
+                }
+                if !v.groupName.isEmpty {
+                    Text("[\(v.groupName)]").font(.subheadline).foregroundStyle(.orange).fontWeight(.bold)
+                }
+                ForEach(v.groupInfo, id: \.self) { info in
+                    Text(info).font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            
             if store.isCheckedIn(v.id) {
                 Label("Checked in", systemImage: "checkmark.circle.fill").foregroundStyle(Color.deepPurple).font(.headline)
                 Button { store.undoCheckIn(personId: v.id); selected = nil } label: {

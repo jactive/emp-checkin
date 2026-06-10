@@ -165,12 +165,17 @@ echo "  ✓ Secrets.swift written"
 
 uv run python -c "
 import base64
+import json
 from pathlib import Path
 
 dao = base64.b64encode(Path('app_bundle/athletes_dao.enc').read_bytes()).decode()
 qian = base64.b64encode(Path('app_bundle/volunteers_qian.enc').read_bytes()).decode()
 tong_a = base64.b64encode(Path('app_bundle/athletes_tong.enc').read_bytes()).decode()
 tong_v = base64.b64encode(Path('app_bundle/volunteers_tong.enc').read_bytes()).decode()
+
+# Load available ages (unencrypted metadata)
+ages_dao = json.loads(Path('app_bundle/ages_dao.json').read_text())
+ages_swift = ', '.join(str(a) for a in ages_dao)
 
 swift = '''import Foundation
 
@@ -191,6 +196,9 @@ enum EmbeddedData {
     static let volunteersTongBase64 = \"\"\"
 ''' + tong_v + '''
 \"\"\"
+
+    // Available ages for EmP Dao (athlete check-in) - from roster data
+    static let availableAgesDao: [Int] = [''' + ages_swift + ''']
 
     static var athletesDaoData: Data { Data(base64Encoded: athletesDaoBase64)! }
     static var volunteersQianData: Data { Data(base64Encoded: volunteersQianBase64)! }

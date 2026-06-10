@@ -62,11 +62,28 @@ struct TongMainView: View {
 
     private func volunteerCard(_ v: Volunteer) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(v.name).fontWeight(.semibold)
-            Text(v.role).font(.caption).foregroundStyle(Color.deepPurple).fontWeight(.medium)
+            HStack { 
+                Text(v.name).fontWeight(.semibold)
+                Spacer()
+                Text("#\(v.volunteerNumber)").font(.system(.caption, design: .rounded, weight: .bold)).foregroundStyle(Color.deepPurple)
+            }
+            // Display: Task → Other roles → [Group name] → Group info items
+            if !v.role.isEmpty {
+                Text(v.role).font(.caption).foregroundStyle(Color.deepPurple).fontWeight(.medium)
+            }
+            if !v.otherRoles.isEmpty {
+                Text("Also: \(v.otherRoles)").font(.caption2).foregroundStyle(.secondary)
+            }
+            if !v.groupName.isEmpty {
+                Text("[\(v.groupName)]").font(.caption).foregroundStyle(.orange).fontWeight(.semibold)
+            }
+            ForEach(v.groupInfo, id: \.self) { info in
+                Text(info).font(.caption2).foregroundStyle(.secondary)
+            }
             Divider()
             if !v.email.isEmpty { row("envelope.fill", "Email", v.email) }
             if !v.phone.isEmpty { phoneRow("phone.fill", "Phone", v.phone) }
+            if !v.wechat.isEmpty { row("message.fill", "WeChat", v.wechat) }
         }
         .font(.caption).padding(14)
         .background(RoundedRectangle(cornerRadius: 14).fill(.white).shadow(color: .black.opacity(0.04), radius: 2, y: 1))
